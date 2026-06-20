@@ -1,0 +1,23 @@
+# Environment variables / API keys
+.env
+.env.local
+.env.production
+.env.staging
+.env.development
+
+# Local config with live API keys — never commit this
+config.js
+
+# macOS
+.DS_Store
+
+# Editor directories
+.vscode/
+.idea/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Dependencies (if npm is added later)
+node_modules/

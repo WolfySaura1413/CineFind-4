@@ -1,185 +1,242 @@
-// Database Service (localStorage abstraction for lists and reviews)
+// Database Service — Firestore
+// All database operations go through this module.
+// UI components must never import from firebase.js directly.
 
-const WATCHLIST_KEY = "cinefind_watchlist";
-const WATCHED_KEY = "cinefind_watched";
-const REVIEWS_KEY = "cinefind_reviews";
+import {
+  collection,
+  doc,
+  setDoc,
+  deleteDoc,
+  getDoc,
+  getDocs,
+  query,
+  where,
+  orderBy,
+  onSnapshot,
+  serverTimestamp,
+} from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
-// Helper utilities
-function getStorageItem(key) {
-  const item = localStorage.getItem(key);
-  return item ? JSON.parse(item) : {};
+import { db } from "./firebase.js";
+
+// ---------------------------------------------------------------------------
+// In-memory caches for watchlist / watched
+// Populated via real-time Firestore listeners when a user logs in.
+// Allows renderGrid() to stay synchronous for UI snappiness.
+// ---------------------------------------------------------------------------
+let _watchlistCache = new Set(); // Set<title_id string>
+let _watchedCache   = new Set(); // Set<title_id string>
+let _watchlistItems = [];        // Full item objects for My Lists screen
+let _watchedItems   = [];
+
+let _unsubWatchlist = null;
+let _unsubWatched   = null;
+
+/**
+ * Start (or tear down) real-time listeners for the signed-in user's lists.
+ * Call this whenever auth state changes (from app.js auth_change handler).
+ */
+export function initUserListeners(userId) {
+  // Tear down existing listeners
+  if (_unsubWatchlist) { _unsubWatchlist(); _unsubWatchlist = null; }
+  if (_unsubWatched)   { _unsubWatched();   _unsubWatched   = null; }
+
+  // Reset caches
+  _watchlistCache = new Set();
+  _watchedCache   = new Set();
+  _watchlistItems = [];
+  _watchedItems   = [];
+
+  if (!userId) return;
+
+  // Watchlist listener
+  _unsubWatchlist = onSnapshot(
+    collection(db, "users", userId, "watchlist"),
+    (snapshot) => {
+      _watchlistItems = snapshot.docs.map(d => ({ ...d.data() }));
+      _watchlistCache = new Set(_watchlistItems.map(item => String(item.title_id)));
+      window.dispatchEvent(new Event("watchlist_change"));
+    },
+    (err) => console.error("Watchlist listener error:", err),
+  );
+
+  // Watched listener
+  _unsubWatched = onSnapshot(
+    collection(db, "users", userId, "watched"),
+    (snapshot) => {
+      _watchedItems = snapshot.docs.map(d => ({ ...d.data() }));
+      _watchedCache = new Set(_watchedItems.map(item => String(item.title_id)));
+      window.dispatchEvent(new Event("watched_change"));
+    },
+    (err) => console.error("Watched listener error:", err),
+  );
 }
 
-function setStorageItem(key, val) {
-  localStorage.setItem(key, JSON.stringify(val));
-}
-
-// Watchlist operations
-export function getWatchlist(userId) {
-  if (!userId) return [];
-  const db = getStorageItem(WATCHLIST_KEY);
-  return db[userId] || [];
-}
+// ---------------------------------------------------------------------------
+// Watchlist — synchronous reads from cache, async writes to Firestore
+// Firestore path: users/{uid}/watchlist/{titleId}
+// ---------------------------------------------------------------------------
 
 export function isInWatchlist(userId, titleId) {
-  const list = getWatchlist(userId);
-  return list.some(item => String(item.title_id) === String(titleId));
+  return _watchlistCache.has(String(titleId));
 }
 
-export function addToWatchlist(userId, titleId, titleName, posterUrl) {
+export function getWatchlistItems() {
+  return _watchlistItems;
+}
+
+export async function addToWatchlist(userId, titleId, titleName, posterUrl) {
   if (!userId) throw new Error("Authentication required.");
-  const db = getStorageItem(WATCHLIST_KEY);
-  const userList = db[userId] || [];
-  
-  if (userList.some(item => String(item.title_id) === String(titleId))) {
-    return userList; // Already in watchlist
-  }
-
-  const newItem = {
-    id: "wl_" + Math.random().toString(36).substr(2, 9),
-    user_id: userId,
-    title_id: String(titleId),
-    title_name: titleName,
-    poster_url: posterUrl || "",
-    added_at: new Date().toISOString(),
-  };
-
-  userList.push(newItem);
-  db[userId] = userList;
-  setStorageItem(WATCHLIST_KEY, db);
-
-  // Auto-remove from watched list when moving back to watchlist
   try {
-    removeFromWatched(userId, titleId);
-  } catch (e) {
-    // Ignore error if not in watched list
+    const ref = doc(db, "users", userId, "watchlist", String(titleId));
+    await setDoc(ref, {
+      user_id:    userId,
+      title_id:   String(titleId),
+      title_name: titleName,
+      poster_url: posterUrl || "",
+      added_at:   serverTimestamp(),
+    });
+    // Real-time listener will update cache + dispatch watchlist_change
+  } catch (error) {
+    console.error("addToWatchlist error:", error);
+    throw new Error("Could not save to Watch List. Please try again.");
   }
-
-  window.dispatchEvent(new Event("watchlist_change"));
-  return userList;
 }
 
-export function removeFromWatchlist(userId, titleId) {
+export async function removeFromWatchlist(userId, titleId) {
   if (!userId) throw new Error("Authentication required.");
-  const db = getStorageItem(WATCHLIST_KEY);
-  const userList = db[userId] || [];
-  
-  const filteredList = userList.filter(item => String(item.title_id) !== String(titleId));
-  db[userId] = filteredList;
-  setStorageItem(WATCHLIST_KEY, db);
-
-  window.dispatchEvent(new Event("watchlist_change"));
-  return filteredList;
+  try {
+    await deleteDoc(doc(db, "users", userId, "watchlist", String(titleId)));
+  } catch (error) {
+    console.error("removeFromWatchlist error:", error);
+    throw new Error("Could not remove from Watch List. Please try again.");
+  }
 }
 
-// Watched operations
-export function getWatched(userId) {
-  if (!userId) return [];
-  const db = getStorageItem(WATCHED_KEY);
-  return db[userId] || [];
-}
+// ---------------------------------------------------------------------------
+// Watched — synchronous reads from cache, async writes to Firestore
+// Firestore path: users/{uid}/watched/{titleId}
+// ---------------------------------------------------------------------------
 
 export function isInWatched(userId, titleId) {
-  const list = getWatched(userId);
-  return list.some(item => String(item.title_id) === String(titleId));
+  return _watchedCache.has(String(titleId));
 }
 
-export function addToWatched(userId, titleId, titleName, posterUrl) {
+export function getWatchedItems() {
+  return _watchedItems;
+}
+
+export async function addToWatched(userId, titleId, titleName, posterUrl) {
   if (!userId) throw new Error("Authentication required.");
-  const db = getStorageItem(WATCHED_KEY);
-  const userList = db[userId] || [];
-
-  if (userList.some(item => String(item.title_id) === String(titleId))) {
-    return userList; // Already in watched
-  }
-
-  const newItem = {
-    id: "wd_" + Math.random().toString(36).substr(2, 9),
-    user_id: userId,
-    title_id: String(titleId),
-    title_name: titleName,
-    poster_url: posterUrl || "",
-    added_at: new Date().toISOString(),
-    watched_at: new Date().toISOString(),
-  };
-
-  userList.push(newItem);
-  db[userId] = userList;
-  setStorageItem(WATCHED_KEY, db);
-
-  // Auto-remove from watchlist when marking as watched
   try {
-    removeFromWatchlist(userId, titleId);
-  } catch (e) {
-    // Ignore error if not in watchlist
+    const ref = doc(db, "users", userId, "watched", String(titleId));
+    await setDoc(ref, {
+      user_id:    userId,
+      title_id:   String(titleId),
+      title_name: titleName,
+      poster_url: posterUrl || "",
+      added_at:   serverTimestamp(),
+      watched_at: serverTimestamp(),
+    });
+    // Also remove from watchlist if present (move semantics)
+    if (_watchlistCache.has(String(titleId))) {
+      await removeFromWatchlist(userId, titleId);
+    }
+  } catch (error) {
+    console.error("addToWatched error:", error);
+    throw new Error("Could not mark as Watched. Please try again.");
   }
-
-  window.dispatchEvent(new Event("watched_change"));
-  return userList;
 }
 
-export function removeFromWatched(userId, titleId) {
+export async function removeFromWatched(userId, titleId) {
   if (!userId) throw new Error("Authentication required.");
-  const db = getStorageItem(WATCHED_KEY);
-  const userList = db[userId] || [];
-
-  const filteredList = userList.filter(item => String(item.title_id) !== String(titleId));
-  db[userId] = filteredList;
-  setStorageItem(WATCHED_KEY, db);
-
-  window.dispatchEvent(new Event("watched_change"));
-  return filteredList;
+  try {
+    await deleteDoc(doc(db, "users", userId, "watched", String(titleId)));
+  } catch (error) {
+    console.error("removeFromWatched error:", error);
+    throw new Error("Could not remove from Watched. Please try again.");
+  }
 }
 
-// Reviews operations
-export function getReviews(titleId) {
-  const db = getStorageItem(REVIEWS_KEY);
-  const titleReviews = db[titleId] || [];
-  return titleReviews;
+// ---------------------------------------------------------------------------
+// Reviews — top-level Firestore collection, shared across all users
+// Firestore path: reviews/{userId}_{titleId}  (deterministic ID = one review per user/title)
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch all reviews for a given title.
+ * Returns public reviews from all users, plus the current user's own private ones.
+ */
+export async function getReviews(titleId, currentUserId = null) {
+  try {
+    const q = query(
+      collection(db, "reviews"),
+      where("title_id", "==", String(titleId)),
+    );
+    const snapshot = await getDocs(q);
+    const all = snapshot.docs.map(d => ({ ...d.data(), id: d.id }));
+
+    // Show public reviews + the current user's own (even if private)
+    return all.filter(r => r.is_public || (currentUserId && r.user_id === currentUserId));
+  } catch (error) {
+    console.error("getReviews error:", error);
+    return [];
+  }
 }
 
-export function addReview(userId, userEmail, titleId, titleName, rating, body, isPublic) {
+/**
+ * Fetch all reviews written by the given user (for Profile screen).
+ */
+export async function getUserReviews(userId) {
+  if (!userId) return [];
+  try {
+    const q = query(
+      collection(db, "reviews"),
+      where("user_id", "==", userId),
+    );
+    const snapshot = await getDocs(q);
+    return snapshot.docs
+      .map(d => ({ ...d.data(), id: d.id }))
+      .sort((a, b) => {
+        // Sort newest first — serverTimestamp may not be available instantly
+        const ta = a.created_at?.toMillis?.() ?? 0;
+        const tb = b.created_at?.toMillis?.() ?? 0;
+        return tb - ta;
+      });
+  } catch (error) {
+    console.error("getUserReviews error:", error);
+    return [];
+  }
+}
+
+/**
+ * Add or update a review.
+ * Uses a deterministic doc ID so each user can only have one review per title.
+ */
+export async function addReview(userId, userEmail, titleId, titleName, rating, body, isPublic) {
   if (!userId) throw new Error("Authentication required.");
   if (rating < 1 || rating > 5) throw new Error("Rating must be between 1 and 5 stars.");
 
-  const db = getStorageItem(REVIEWS_KEY);
-  const titleReviews = db[titleId] || [];
+  try {
+    const docId = `${userId}_${titleId}`;
+    const ref   = doc(db, "reviews", docId);
+    const existing = await getDoc(ref);
 
-  // Remove existing review by this user if exists (to update it)
-  const filteredReviews = titleReviews.filter(review => review.user_id !== userId);
+    await setDoc(ref, {
+      id:          docId,
+      user_id:     userId,
+      user_email:  userEmail,
+      title_id:    String(titleId),
+      title_name:  titleName,
+      rating:      parseInt(rating, 10),
+      body:        body || "",
+      is_public:   !!isPublic,
+      created_at:  existing.exists() ? existing.data().created_at : serverTimestamp(),
+      updated_at:  serverTimestamp(),
+    });
 
-  const newReview = {
-    id: "rev_" + Math.random().toString(36).substr(2, 9),
-    user_id: userId,
-    user_email: userEmail,
-    title_id: String(titleId),
-    title_name: titleName,
-    rating: parseInt(rating, 10),
-    body: body || "",
-    is_public: !!isPublic,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  };
-
-  filteredReviews.push(newReview);
-  db[titleId] = filteredReviews;
-  setStorageItem(REVIEWS_KEY, db);
-
-  window.dispatchEvent(new Event("reviews_change"));
-  return newReview;
-}
-
-export function getUserReviews(userId) {
-  if (!userId) return [];
-  const db = getStorageItem(REVIEWS_KEY);
-  const allUserReviews = [];
-
-  for (const titleId in db) {
-    const reviews = db[titleId];
-    const userReviews = reviews.filter(rev => rev.user_id === userId);
-    allUserReviews.push(...userReviews);
+    window.dispatchEvent(new Event("reviews_change"));
+  } catch (error) {
+    console.error("addReview error:", error);
+    throw new Error("Could not save your review. Please try again.");
   }
-
-  // Sort by created_at descending
-  return allUserReviews.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 }

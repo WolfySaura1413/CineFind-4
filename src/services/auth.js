@@ -1,101 +1,129 @@
-// Authentication Service (localStorage abstraction)
+// Authentication Service — Firebase Auth
+// UI components must never import from firebase.js directly.
 
-const USERS_KEY = "cinefind_users";
-const SESSION_KEY = "cinefind_session";
+import {
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signInWithPopup,
+  GoogleAuthProvider,
+  signOut,
+  onAuthStateChanged,
+} from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 
-function getUsers() {
-  const users = localStorage.getItem(USERS_KEY);
-  return users ? JSON.parse(users) : {};
+import { auth } from "./firebase.js";
+
+// ---------------------------------------------------------------------------
+// In-memory session cache — updated by onAuthStateChanged.
+// Keeps getCurrentUser() synchronous so app.js needs no changes on reads.
+// ---------------------------------------------------------------------------
+let _currentUser = null;
+
+// Promise that resolves once Firebase completes its first auth check.
+// Await this in app.js before rendering auth-guarded content.
+let _authReadyResolve;
+export const authReady = new Promise((resolve) => {
+  _authReadyResolve = resolve;
+});
+
+onAuthStateChanged(auth, (firebaseUser) => {
+  _currentUser = firebaseUser
+    ? {
+        id:         firebaseUser.uid,
+        email:      firebaseUser.email || firebaseUser.displayName || "Google User",
+        displayName: firebaseUser.displayName || null,
+        photoURL:   firebaseUser.photoURL   || null,
+        created_at: firebaseUser.metadata.creationTime,
+      }
+    : null;
+
+  // Resolve the ready-promise (no-op on subsequent calls).
+  _authReadyResolve();
+
+  // Notify the application.
+  window.dispatchEvent(new Event("auth_change"));
+});
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+/** Returns the cached user object, or null if not authenticated. */
+export function getCurrentUser() {
+  return _currentUser;
 }
 
-function saveUsers(users) {
-  localStorage.setItem(USERS_KEY, JSON.stringify(users));
+/** Synchronous auth check — safe to call anywhere. */
+export function isAuthenticated() {
+  return _currentUser !== null;
 }
 
-export function register(email, password) {
+/**
+ * Register a new user with email + password.
+ * Firebase automatically signs the user in after successful registration.
+ */
+export async function register(email, password) {
   try {
-    if (!email || !password) {
-      throw new Error("Email and password are required.");
-    }
-    
-    const emailLower = email.toLowerCase().trim();
-    if (!emailLower.includes("@")) {
-      throw new Error("Invalid email address.");
-    }
-
-    if (password.length < 6) {
-      throw new Error("Password must be at least 6 characters long.");
-    }
-
-    const users = getUsers();
-    if (users[emailLower]) {
-      throw new Error("An account with this email already exists.");
-    }
-
-    const userId = "usr_" + Math.random().toString(36).substr(2, 9);
-    const newUser = {
-      id: userId,
-      email: emailLower,
-      password: password, // For mock authentication
-      created_at: new Date().toISOString(),
-    };
-
-    users[emailLower] = newUser;
-    saveUsers(users);
-
-    // Auto-login after registration
-    return login(email, password);
+    const cred = await createUserWithEmailAndPassword(auth, email, password);
+    return { id: cred.user.uid, email: cred.user.email };
   } catch (error) {
     console.error("Registration error:", error);
-    throw error;
+    throw new Error(_mapAuthError(error.code));
   }
 }
 
-export function login(email, password) {
+/** Sign an existing user in with email + password. */
+export async function login(email, password) {
   try {
-    if (!email || !password) {
-      throw new Error("Email and password are required.");
-    }
-
-    const emailLower = email.toLowerCase().trim();
-    const users = getUsers();
-    const user = users[emailLower];
-
-    if (!user || user.password !== password) {
-      throw new Error("Invalid email or password.");
-    }
-
-    // Set session (without password for safety)
-    const session = {
-      id: user.id,
-      email: user.email,
-      created_at: user.created_at,
-      login_time: new Date().toISOString(),
-    };
-
-    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
-    
-    // Dispatch event to notify application of auth state change
-    window.dispatchEvent(new Event("auth_change"));
-    
-    return session;
+    const cred = await signInWithEmailAndPassword(auth, email, password);
+    return { id: cred.user.uid, email: cred.user.email };
   } catch (error) {
     console.error("Login error:", error);
-    throw error;
+    throw new Error(_mapAuthError(error.code));
   }
 }
 
-export function logout() {
-  localStorage.removeItem(SESSION_KEY);
-  window.dispatchEvent(new Event("auth_change"));
-  return true;
+/**
+ * Sign in (or register) using Google OAuth popup.
+ * Works for both new and returning Google users.
+ */
+export async function loginWithGoogle() {
+  try {
+    const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: "select_account" });
+    const cred = await signInWithPopup(auth, provider);
+    return { id: cred.user.uid, email: cred.user.email };
+  } catch (error) {
+    if (error.code === "auth/popup-closed-by-user") return null; // User dismissed
+    console.error("Google sign-in error:", error);
+    throw new Error(_mapAuthError(error.code));
+  }
 }
 
-export function getCurrentUser() {
-  const session = localStorage.getItem(SESSION_KEY);
-  return session ? JSON.parse(session) : null;
+/** Sign the current user out. */
+export async function logout() {
+  try {
+    await signOut(auth);
+  } catch (error) {
+    console.error("Logout error:", error);
+    throw new Error("Failed to log out. Please try again.");
+  }
 }
 
-export function isAuthenticated() {
-  return getCurrentUser() !== null;
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function _mapAuthError(code) {
+  const MAP = {
+    "auth/email-already-in-use":   "An account with this email already exists.",
+    "auth/invalid-email":          "Invalid email address.",
+    "auth/weak-password":          "Password must be at least 6 characters.",
+    "auth/user-not-found":         "No account found with this email.",
+    "auth/wrong-password":         "Incorrect password. Please try again.",
+    "auth/invalid-credential":     "Invalid email or password.",
+    "auth/too-many-requests":      "Too many failed attempts. Please try again later.",
+    "auth/network-request-failed": "Network error. Check your connection and try again.",
+    "auth/popup-blocked":          "Popup was blocked. Please allow popups for this site.",
+  };
+  return MAP[code] || "An authentication error occurred. Please try again.";
 }
