@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CineFind — Discover Where to Stream Movies & TV Shows</title>
+  <meta name="description" content="A mobile-first discovery app for movies and TV shows. Find streaming platforms, manage your Watch List, and write community reviews.">
+  
+  <!-- Modern Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- CSS Stylesheet -->
+  <link rel="stylesheet" href="index.css">
+</head>
+<body>
+  <div class="app-container">
+    <div class="phone-frame">
+      
+      <!-- Top Header -->
+      <header class="app-header">
+        <div class="header-logo">
+          <span class="logo-icon">🎬</span>
+          <h1 class="logo-text">CineFind</h1>
+        </div>
+        <div class="header-user-status" id="header-user-status">
+          <!-- Populated by JS -->
+        </div>
+      </header>
+
+      <!-- Main Screen Contents -->
+      <main class="app-content">
+        
+        <!-- SCREEN 1: HOME -->
+        <section id="screen-home" class="screen-section active">
+          <div class="home-search-trigger" id="home-search-trigger">
+            <span class="search-icon-placeholder">🔍</span>
+            <span class="search-text-placeholder">Search movies and TV shows...</span>
+          </div>
+          
+          <div class="section-title-wrapper">
+            <h2 class="section-title">Trending Now</h2>
+            <span class="section-subtitle">Most popular streaming matches today</span>
+          </div>
+          
+          <div class="movies-grid" id="trending-grid">
+            <!-- Populated by JS -->
+            <div class="loading-placeholder">Loading trending titles...</div>
+          </div>
+        </section>
+
+        <!-- SCREEN 2: SEARCH -->
+        <section id="screen-search" class="screen-section">
+          <div class="search-header-container">
+            <div class="search-input-wrapper">
+              <span class="search-input-icon">🔍</span>
+              <input type="text" id="search-input" placeholder="Search by movie or TV title..." autocomplete="off">
+              <button id="search-clear-btn" class="clear-btn" style="display: none;">✕</button>
+            </div>
+            
+            <div class="filter-tabs-container">
+              <button class="filter-tab active" data-type="">All</button>
+              <button class="filter-tab" data-type="movie">Movies</button>
+              <button class="filter-tab" data-type="tv_series">TV Shows</button>
+            </div>
+          </div>
+
+          <div class="movies-grid" id="search-results-grid">
+            <div class="empty-state">
+              <span class="empty-icon">🍿</span>
+              <p>Type a movie or TV show name to start searching.</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- SCREEN 3: MY LISTS (AUTH GUARDED) -->
+        <section id="screen-lists" class="screen-section">
+          <div class="lists-header-container">
+            <h2 class="page-title">My Lists</h2>
+            <div class="list-toggle-bar">
+              <button id="toggle-watchlist-btn" class="toggle-list-tab active">Watch List</button>
+              <button id="toggle-watched-btn" class="toggle-list-tab">Watched</button>
+            </div>
+          </div>
+
+          <div class="movies-grid" id="lists-grid">
+            <!-- Populated by JS -->
+          </div>
+        </section>
+
+        <!-- SCREEN 4: PROFILE (AUTH GUARDED) -->
+        <section id="screen-profile" class="screen-section">
+          <div class="profile-card">
+            <div class="profile-avatar">👤</div>
+            <div class="profile-details">
+              <h3 id="profile-email">user@example.com</h3>
+              <p class="profile-meta" id="profile-joined">Member since: June 2026</p>
+            </div>
+            <button id="logout-btn" class="btn btn-outline">Log Out</button>
+          </div>
+
+          <div class="profile-reviews-section">
+            <h3 class="section-title">My Reviews</h3>
+            <div class="reviews-list" id="profile-reviews-list">
+              <!-- Populated by JS -->
+            </div>
+          </div>
+        </section>
+
+      </main>
+
+      <!-- Bottom Tab Navigation -->
+      <nav class="app-nav">
+        <button class="nav-tab active" id="tab-home" data-screen="home">
+          <svg viewBox="0 0 24 24" class="tab-icon" fill="currentColor">
+            <path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/>
+          </svg>
+          <span class="tab-label">Home</span>
+        </button>
+        <button class="nav-tab" id="tab-search" data-screen="search">
+          <svg viewBox="0 0 24 24" class="tab-icon" fill="currentColor">
+            <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
+          </svg>
+          <span class="tab-label">Search</span>
+        </button>
+        <button class="nav-tab" id="tab-lists" data-screen="lists">
+          <svg viewBox="0 0 24 24" class="tab-icon" fill="currentColor">
+            <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-2 10h-4v4h-2v-4H7v-2h4V7h2v4h4v2z"/>
+          </svg>
+          <span class="tab-label">My Lists</span>
+        </button>
+        <button class="nav-tab" id="tab-profile" data-screen="profile">
+          <svg viewBox="0 0 24 24" class="tab-icon" fill="currentColor">
+            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/>
+          </svg>
+          <span class="tab-label">Profile</span>
+        </button>
+      </nav>
+
+    </div>
+  </div>
+
+  <!-- AUTH MODAL (LOGIN / REGISTER) -->
+  <div id="auth-modal" class="modal-overlay">
+    <div class="modal-card auth-card">
+      <button class="modal-close-btn" id="auth-close-btn">✕</button>
+      <h3 id="auth-modal-title" class="auth-title">Log In</h3>
+      <p id="auth-modal-subtitle" class="auth-subtitle">Log in to save watchlists and write reviews</p>
+      
+      <div id="auth-error" class="error-banner" style="display: none;"></div>
+
+      <form id="auth-form">
+        <div class="input-group">
+          <label for="auth-email">Email Address</label>
+          <input type="email" id="auth-email" placeholder="you@example.com" required>
+        </div>
+        <div class="input-group">
+          <label for="auth-password">Password</label>
+          <input type="password" id="auth-password" placeholder="••••••" minlength="6" required>
+        </div>
+        
+        <button type="submit" id="auth-submit-btn" class="btn btn-primary">Log In</button>
+      </form>
+      
+      <div class="auth-toggle-link">
+        <span id="auth-toggle-text">Don't have an account?</span>
+        <a href="#" id="auth-toggle-btn">Sign Up</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- DETAIL MODAL -->
+  <div id="detail-modal" class="modal-overlay">
+    <div class="modal-card detail-card">
+      <button class="modal-close-btn" id="detail-close-btn">✕</button>
+      
+      <div class="detail-scroll-container">
+        <!-- Top Poster and Header info -->
+        <div class="detail-header-block">
+          <div class="detail-poster-wrapper">
+            <img id="detail-poster" src="" alt="Title Poster">
+          </div>
+          <div class="detail-meta-wrapper">
+            <h2 id="detail-title">Title Name</h2>
+            <div class="detail-info-row">
+              <span id="detail-year" class="meta-tag">2024</span>
+              <span id="detail-type" class="meta-tag">Movie</span>
+            </div>
+            <div id="detail-genres" class="detail-genres-row">
+              <!-- Populated by JS -->
+            </div>
+            <div class="detail-average-rating">
+              <span class="rating-stars" id="detail-stars-avg">★★★★★</span>
+              <span class="rating-num" id="detail-rating-avg-text">4.8 / 5</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Action buttons (Add to Watch List / Watched) -->
+        <div class="detail-actions-row">
+          <button id="detail-btn-watchlist" class="btn btn-action">
+            <span class="btn-icon">+</span> Watch List
+          </button>
+          <button id="detail-btn-watched" class="btn btn-action">
+            <span class="btn-icon">✓</span> Watched
+          </button>
+        </div>
+
+        <!-- Overview / Synopsis -->
+        <div class="detail-section">
+          <h3 class="detail-section-title">Synopsis</h3>
+          <p id="detail-plot" class="detail-plot-text">Plot details...</p>
+        </div>
+
+        <!-- Streaming Sources -->
+        <div class="detail-section">
+          <h3 class="detail-section-title">Where to Watch</h3>
+          <div id="detail-sources-list" class="sources-list-container">
+            <!-- Populated by JS -->
+          </div>
+        </div>
+
+        <!-- Reviews list & write review form -->
+        <div class="detail-section">
+          <h3 class="detail-section-title">User Reviews</h3>
+          <div id="detail-reviews-container" class="reviews-list">
+            <!-- Populated by JS -->
+          </div>
+
+          <div id="review-editor-block" class="review-editor-card">
+            <h4>Write a Review</h4>
+            <form id="review-form">
+              <div class="review-rating-input">
+                <span>Your Rating:</span>
+                <div class="stars-selector" id="stars-selector">
+                  <span data-val="1">★</span>
+                  <span data-val="2">★</span>
+                  <span data-val="3">★</span>
+                  <span data-val="4">★</span>
+                  <span data-val="5">★</span>
+                </div>
+              </div>
+              <div class="input-group">
+                <textarea id="review-body" placeholder="Write your thoughts here (optional)..." rows="3"></textarea>
+              </div>
+              <div class="checkbox-group">
+                <input type="checkbox" id="review-public" checked>
+                <label for="review-public">Make review public</label>
+              </div>
+              <button type="submit" class="btn btn-primary" style="margin-top: 10px;">Submit Review</button>
+            </form>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script type="module" src="src/app.js"></script>
+</body>
+</html>
